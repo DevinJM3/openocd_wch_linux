@@ -19,6 +19,30 @@ jobs:
           ref: ${{ github.ref }}
           persist-credentials: false
 
+      - name: Bundle OpenOCD runtime libraries
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libhidapi-hidraw0 libusb-1.0-0 libjaylink0 patchelf
+
+          for library in libhidapi-hidraw.so.0 libusb-1.0.so.0 libjaylink.so.0; do
+            library_path="$(ldconfig -p | awk -v name="$library" '$1 == name { print $NF; exit }')"
+            if [[ -z "$library_path" || ! -f "$library_path" ]]; then
+              echo "$library was not found after installing its runtime package" >&2
+              exit 1
+            fi
+            cp --dereference -- "$library_path" "bin/$library"
+          done
+          patchelf --set-rpath '$ORIGIN' bin/openocd
+          for library in libhidapi-hidraw.so.0 libusb-1.0.so.0 libjaylink.so.0; do
+            resolved_library="$(ldd bin/openocd | awk -v name="$library" '$1 == name { print $3; exit }')"
+            if [[ "$resolved_library" != "$PWD/bin/$library" ]]; then
+              ldd bin/openocd
+              echo "OpenOCD did not resolve bundled $library" >&2
+              exit 1
+            fi
+          done
+
       - name: Create tar.gz archive
         shell: bash
         env:
